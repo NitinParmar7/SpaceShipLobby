@@ -20,36 +20,39 @@ public:
 
 	virtual void Init() override;
 	virtual void OnStart() override;
-	virtual void OnWorldChanged(UWorld* OldWorld, UWorld* NewWorld) override;
+	virtual void OnWorldChanged( UWorld* OldWorld, UWorld* NewWorld ) override;
 	virtual void Shutdown() override;
 
-	UFUNCTION(Exec)
+	UFUNCTION( Exec )
 	void HostLobby();
 
-	UFUNCTION(Exec)
+	UFUNCTION( Exec )
 	void JoinLobby();
 
-	UFUNCTION(Exec)
+	UFUNCTION( Exec )
 	void LeaveLobby();
 
 	void FindAndJoinLobby();
 	void QuitGame();
 	FText GetLobbyStatus() const;
+	void SetPlayerDisplayName( const FString& NewPlayerName );
+	FString GetPlayerDisplayName() const;
 
 private:
 	IOnlineSessionPtr GetSessionInterface() const;
 	void CreateLobbySession();
 	void ShowLobbyMenu();
 	void HideLobbyMenu();
-	void SetLobbyStatus(const FText& Status);
+	void SetLobbyStatus( const FText& Status );
+	FString GetProfileTravelOptions() const;
 	void ReturnToStandaloneLobby();
-	void HandleCreateSessionComplete(FName SessionName, bool bWasSuccessful);
-	void HandleFindSessionsComplete(bool bWasSuccessful);
-	void HandleJoinSessionComplete(FName SessionName, EOnJoinSessionCompleteResult::Type Result);
-	void HandleDestroySessionComplete(FName SessionName, bool bWasSuccessful);
-	void HandleNetworkFailure(UWorld* World, UNetDriver* NetDriver, ENetworkFailure::Type FailureType, const FString& ErrorString);
-	void HandleTravelFailure(UWorld* World, ETravelFailure::Type FailureType, const FString& ErrorString);
-	void RecoverFromTravelFailure(const FString& ErrorString);
+	void HandleCreateSessionComplete( FName SessionName, bool bWasSuccessful );
+	void HandleFindSessionsComplete( bool bWasSuccessful );
+	void HandleJoinSessionComplete( FName SessionName, EOnJoinSessionCompleteResult::Type Result );
+	void HandleDestroySessionComplete( FName SessionName, bool bWasSuccessful );
+	void HandleNetworkFailure( UWorld* World, UNetDriver* NetDriver, ENetworkFailure::Type FailureType, const FString& ErrorString );
+	void HandleTravelFailure( UWorld* World, ETravelFailure::Type FailureType, const FString& ErrorString );
+	void RecoverFromTravelFailure( const FString& ErrorString );
 
 	FOnCreateSessionCompleteDelegate CreateSessionCompleteDelegate;
 	FDelegateHandle CreateSessionCompleteDelegateHandle;
@@ -62,6 +65,9 @@ private:
 	TSharedPtr<FOnlineSessionSearch> SessionSearch;
 	TSharedPtr<SLobbyMenuWidget> LobbyMenuWidget;
 	FText LobbyStatus;
+	UPROPERTY( Config, EditAnywhere, Category = "Player" )
+	FString PlayerDisplayName = TEXT( "Player" );
+
 	bool bCreateSessionAfterDestroy = false;
 	bool bReturnToMenuAfterDestroy = false;
 	bool bMenuShouldBeVisible = false;

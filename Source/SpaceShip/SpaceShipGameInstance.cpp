@@ -6,36 +6,49 @@
 #include "Engine/GameViewportClient.h"
 #include "Engine/NetDriver.h"
 #include "Engine/World.h"
+#include "GenericPlatform/GenericPlatformHttp.h"
 #include "GameFramework/PlayerController.h"
 #include "HAL/PlatformMisc.h"
 #include "Kismet/GameplayStatics.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 #include "OnlineSessionSettings.h"
 #include "OnlineSubsystem.h"
+#include "OnlineSubsystemUtils.h"
 #include "SLobbyMenuWidget.h"
 
 namespace
 {
 	const FName LobbySessionName = NAME_GameSession;
-	const FName LobbyMapName(TEXT("/Game/SpaceshipInterior/Maps/Demonstration"));
+	const FName LobbyMapName( TEXT( "/Game/SpaceshipInterior/Maps/Demonstration" ) );
 }
 
 USpaceShipGameInstance::USpaceShipGameInstance()
-	: CreateSessionCompleteDelegate(FOnCreateSessionCompleteDelegate::CreateUObject(this, &USpaceShipGameInstance::HandleCreateSessionComplete))
-	, FindSessionsCompleteDelegate(FOnFindSessionsCompleteDelegate::CreateUObject(this, &USpaceShipGameInstance::HandleFindSessionsComplete))
-	, JoinSessionCompleteDelegate(FOnJoinSessionCompleteDelegate::CreateUObject(this, &USpaceShipGameInstance::HandleJoinSessionComplete))
-	, DestroySessionCompleteDelegate(FOnDestroySessionCompleteDelegate::CreateUObject(this, &USpaceShipGameInstance::HandleDestroySessionComplete))
-	, LobbyStatus(FText::FromString(TEXT("Host a lobby or find one on your LAN.")))
+	: CreateSessionCompleteDelegate( FOnCreateSessionCompleteDelegate::CreateUObject( this, &USpaceShipGameInstance::HandleCreateSessionComplete ) )
+	, FindSessionsCompleteDelegate( FOnFindSessionsCompleteDelegate::CreateUObject( this, &USpaceShipGameInstance::HandleFindSessionsComplete ) )
+	, JoinSessionCompleteDelegate( FOnJoinSessionCompleteDelegate::CreateUObject( this, &USpaceShipGameInstance::HandleJoinSessionComplete ) )
+	, DestroySessionCompleteDelegate( FOnDestroySessionCompleteDelegate::CreateUObject( this, &USpaceShipGameInstance::HandleDestroySessionComplete ) )
+	, LobbyStatus( FText::FromString( TEXT( "Host a lobby or find one on your LAN." ) ) )
 {
 }
 
 void USpaceShipGameInstance::Init()
 {
 	Super::Init();
-
-	if (GEngine)
+	FString CommandLinePlayerName;
+	if( !FParse::Value( FCommandLine::Get(), TEXT( "PlayerName=" ), CommandLinePlayerName ) )
 	{
-		GEngine->OnNetworkFailure().AddUObject(this, &USpaceShipGameInstance::HandleNetworkFailure);
-		GEngine->OnTravelFailure().AddUObject(this, &USpaceShipGameInstance::HandleTravelFailure);
+		FParse::Value( FCommandLine::Get(), TEXT( "Name=" ), CommandLinePlayerName );
+	}
+	if( !CommandLinePlayerName.IsEmpty() )
+	{
+		PlayerDisplayName = CommandLinePlayerName;
+	}
+
+	if( GEngine )
+	{
+		GEngine->OnNetworkFailure().AddUObject( this, &USpaceShipGameInstance::HandleNetworkFailure );
+		GEngine->OnTravelFailure().AddUObject( this, &USpaceShipGameInstance::HandleTravelFailure );
 	}
 }
 
@@ -45,11 +58,11 @@ void USpaceShipGameInstance::OnStart()
 	ShowLobbyMenu();
 }
 
-void USpaceShipGameInstance::OnWorldChanged(UWorld* OldWorld, UWorld* NewWorld)
+void USpaceShipGameInstance::OnWorldChanged( UWorld* OldWorld, UWorld* NewWorld )
 {
-	Super::OnWorldChanged(OldWorld, NewWorld);
+	Super::OnWorldChanged( OldWorld, NewWorld );
 
-	if (bMenuShouldBeVisible && NewWorld && NewWorld->GetNetMode() == NM_Standalone)
+	if( bMenuShouldBeVisible && NewWorld && NewWorld->GetNetMode() == NM_Standalone )
 	{
 		ShowLobbyMenu();
 	}
@@ -57,18 +70,18 @@ void USpaceShipGameInstance::OnWorldChanged(UWorld* OldWorld, UWorld* NewWorld)
 
 void USpaceShipGameInstance::Shutdown()
 {
-	if (GEngine)
+	if( GEngine )
 	{
-		GEngine->OnNetworkFailure().RemoveAll(this);
-		GEngine->OnTravelFailure().RemoveAll(this);
+		GEngine->OnNetworkFailure().RemoveAll( this );
+		GEngine->OnTravelFailure().RemoveAll( this );
 	}
 
-	if (IOnlineSessionPtr SessionInterface = GetSessionInterface())
+	if( IOnlineSessionPtr SessionInterface = GetSessionInterface() )
 	{
-		SessionInterface->ClearOnCreateSessionCompleteDelegate_Handle(CreateSessionCompleteDelegateHandle);
-		SessionInterface->ClearOnFindSessionsCompleteDelegate_Handle(FindSessionsCompleteDelegateHandle);
-		SessionInterface->ClearOnJoinSessionCompleteDelegate_Handle(JoinSessionCompleteDelegateHandle);
-		SessionInterface->ClearOnDestroySessionCompleteDelegate_Handle(DestroySessionCompleteDelegateHandle);
+		SessionInterface->ClearOnCreateSessionCompleteDelegate_Handle( CreateSessionCompleteDelegateHandle );
+		SessionInterface->ClearOnFindSessionsCompleteDelegate_Handle( FindSessionsCompleteDelegateHandle );
+		SessionInterface->ClearOnJoinSessionCompleteDelegate_Handle( JoinSessionCompleteDelegateHandle );
+		SessionInterface->ClearOnDestroySessionCompleteDelegate_Handle( DestroySessionCompleteDelegateHandle );
 	}
 
 	HideLobbyMenu();
@@ -77,34 +90,33 @@ void USpaceShipGameInstance::Shutdown()
 
 void USpaceShipGameInstance::HostLobby()
 {
-	if (bOperationInProgress)
+	if( bOperationInProgress )
 	{
 		return;
 	}
 
 	bOperationInProgress = true;
-	HideLobbyMenu();
-	SetLobbyStatus(FText::FromString(TEXT("Creating a 16-player LAN lobby...")));
+	SetLobbyStatus( FText::FromString( TEXT( "Hosting: creating a 16-player LAN lobby..." ) ) );
 
 	IOnlineSessionPtr SessionInterface = GetSessionInterface();
-	if (!SessionInterface.IsValid())
+	if( !SessionInterface.IsValid() )
 	{
 		bOperationInProgress = false;
-		SetLobbyStatus(FText::FromString(TEXT("Online sessions are unavailable.")));
+		SetLobbyStatus( FText::FromString( TEXT( "Online sessions are unavailable." ) ) );
 		ShowLobbyMenu();
 		return;
 	}
 
-	if (SessionInterface->GetNamedSession(LobbySessionName))
+	if( SessionInterface->GetNamedSession( LobbySessionName ) )
 	{
 		bCreateSessionAfterDestroy = true;
-		DestroySessionCompleteDelegateHandle = SessionInterface->AddOnDestroySessionCompleteDelegate_Handle(DestroySessionCompleteDelegate);
-		if (!SessionInterface->DestroySession(LobbySessionName))
+		DestroySessionCompleteDelegateHandle = SessionInterface->AddOnDestroySessionCompleteDelegate_Handle( DestroySessionCompleteDelegate );
+		if( !SessionInterface->DestroySession( LobbySessionName ) )
 		{
-			SessionInterface->ClearOnDestroySessionCompleteDelegate_Handle(DestroySessionCompleteDelegateHandle);
+			SessionInterface->ClearOnDestroySessionCompleteDelegate_Handle( DestroySessionCompleteDelegateHandle );
 			bCreateSessionAfterDestroy = false;
 			bOperationInProgress = false;
-			SetLobbyStatus(FText::FromString(TEXT("Could not close the previous lobby.")));
+			SetLobbyStatus( FText::FromString( TEXT( "Could not close the previous lobby." ) ) );
 			ShowLobbyMenu();
 		}
 		return;
@@ -120,53 +132,52 @@ void USpaceShipGameInstance::JoinLobby()
 
 void USpaceShipGameInstance::FindAndJoinLobby()
 {
-	if (bOperationInProgress)
+	if( bOperationInProgress )
 	{
 		return;
 	}
 
 	IOnlineSessionPtr SessionInterface = GetSessionInterface();
-	if (!SessionInterface.IsValid())
+	if( !SessionInterface.IsValid() )
 	{
-		SetLobbyStatus(FText::FromString(TEXT("Online sessions are unavailable.")));
+		SetLobbyStatus( FText::FromString( TEXT( "Online sessions are unavailable." ) ) );
 		ShowLobbyMenu();
 		return;
 	}
 
 	bOperationInProgress = true;
-	HideLobbyMenu();
-	SetLobbyStatus(FText::FromString(TEXT("Searching for LAN lobbies...")));
+	SetLobbyStatus( FText::FromString( TEXT( "Searching for LAN lobbies..." ) ) );
 	SessionSearch = MakeShared<FOnlineSessionSearch>();
 	SessionSearch->bIsLanQuery = true;
 	SessionSearch->MaxSearchResults = 100;
 
-	FindSessionsCompleteDelegateHandle = SessionInterface->AddOnFindSessionsCompleteDelegate_Handle(FindSessionsCompleteDelegate);
-	if (!SessionInterface->FindSessions(0, SessionSearch.ToSharedRef()))
+	FindSessionsCompleteDelegateHandle = SessionInterface->AddOnFindSessionsCompleteDelegate_Handle( FindSessionsCompleteDelegate );
+	if( !SessionInterface->FindSessions( 0, SessionSearch.ToSharedRef() ) )
 	{
-		SessionInterface->ClearOnFindSessionsCompleteDelegate_Handle(FindSessionsCompleteDelegateHandle);
+		SessionInterface->ClearOnFindSessionsCompleteDelegate_Handle( FindSessionsCompleteDelegateHandle );
 		bOperationInProgress = false;
-		SetLobbyStatus(FText::FromString(TEXT("Could not search for LAN lobbies.")));
+		SetLobbyStatus( FText::FromString( TEXT( "Could not search for LAN lobbies." ) ) );
 		ShowLobbyMenu();
 	}
 }
 
 void USpaceShipGameInstance::LeaveLobby()
 {
-	if (bOperationInProgress)
+	if( bOperationInProgress )
 	{
 		return;
 	}
 
 	IOnlineSessionPtr SessionInterface = GetSessionInterface();
-	if (SessionInterface.IsValid() && SessionInterface->GetNamedSession(LobbySessionName))
+	if( SessionInterface.IsValid() && SessionInterface->GetNamedSession( LobbySessionName ) )
 	{
 		bOperationInProgress = true;
 		bReturnToMenuAfterDestroy = true;
-		SetLobbyStatus(FText::FromString(TEXT("Leaving the lobby...")));
-		DestroySessionCompleteDelegateHandle = SessionInterface->AddOnDestroySessionCompleteDelegate_Handle(DestroySessionCompleteDelegate);
-		if (!SessionInterface->DestroySession(LobbySessionName))
+		SetLobbyStatus( FText::FromString( TEXT( "Leaving the lobby..." ) ) );
+		DestroySessionCompleteDelegateHandle = SessionInterface->AddOnDestroySessionCompleteDelegate_Handle( DestroySessionCompleteDelegate );
+		if( !SessionInterface->DestroySession( LobbySessionName ) )
 		{
-			SessionInterface->ClearOnDestroySessionCompleteDelegate_Handle(DestroySessionCompleteDelegateHandle);
+			SessionInterface->ClearOnDestroySessionCompleteDelegate_Handle( DestroySessionCompleteDelegateHandle );
 			bReturnToMenuAfterDestroy = false;
 			bOperationInProgress = false;
 			ReturnToStandaloneLobby();
@@ -179,7 +190,7 @@ void USpaceShipGameInstance::LeaveLobby()
 
 void USpaceShipGameInstance::QuitGame()
 {
-	FPlatformMisc::RequestExit(false);
+	FPlatformMisc::RequestExit( false );
 }
 
 FText USpaceShipGameInstance::GetLobbyStatus() const
@@ -187,19 +198,35 @@ FText USpaceShipGameInstance::GetLobbyStatus() const
 	return LobbyStatus;
 }
 
+void USpaceShipGameInstance::SetPlayerDisplayName( const FString& NewPlayerName )
+{
+	PlayerDisplayName = NewPlayerName.TrimStartAndEnd();
+}
+
+FString USpaceShipGameInstance::GetPlayerDisplayName() const
+{
+	return PlayerDisplayName;
+}
+
+FString USpaceShipGameInstance::GetProfileTravelOptions() const
+{
+	return FString::Printf( TEXT( "PlayerName=%s" ), *FGenericPlatformHttp::UrlEncode( PlayerDisplayName ) );
+}
+
 IOnlineSessionPtr USpaceShipGameInstance::GetSessionInterface() const
 {
-	IOnlineSubsystem* OnlineSubsystem = IOnlineSubsystem::Get();
+
+	IOnlineSubsystem* OnlineSubsystem = GetWorld() ? Online::GetSubsystem( GetWorld() ) : nullptr;
 	return OnlineSubsystem ? OnlineSubsystem->GetSessionInterface() : nullptr;
 }
 
 void USpaceShipGameInstance::CreateLobbySession()
 {
 	IOnlineSessionPtr SessionInterface = GetSessionInterface();
-	if (!SessionInterface.IsValid())
+	if( !SessionInterface.IsValid() )
 	{
 		bOperationInProgress = false;
-		SetLobbyStatus(FText::FromString(TEXT("Online sessions are unavailable.")));
+		SetLobbyStatus( FText::FromString( TEXT( "Online sessions are unavailable." ) ) );
 		ShowLobbyMenu();
 		return;
 	}
@@ -214,198 +241,201 @@ void USpaceShipGameInstance::CreateLobbySession()
 	SessionSettings.bAllowJoinViaPresence = true;
 	SessionSettings.bAllowInvites = true;
 
-	CreateSessionCompleteDelegateHandle = SessionInterface->AddOnCreateSessionCompleteDelegate_Handle(CreateSessionCompleteDelegate);
-	if (!SessionInterface->CreateSession(0, LobbySessionName, SessionSettings))
+	CreateSessionCompleteDelegateHandle = SessionInterface->AddOnCreateSessionCompleteDelegate_Handle( CreateSessionCompleteDelegate );
+	if( !SessionInterface->CreateSession( 0, LobbySessionName, SessionSettings ) )
 	{
-		SessionInterface->ClearOnCreateSessionCompleteDelegate_Handle(CreateSessionCompleteDelegateHandle);
+		SessionInterface->ClearOnCreateSessionCompleteDelegate_Handle( CreateSessionCompleteDelegateHandle );
 		bOperationInProgress = false;
-		SetLobbyStatus(FText::FromString(TEXT("Could not create the LAN lobby.")));
+		SetLobbyStatus( FText::FromString( TEXT( "Could not create the LAN lobby." ) ) );
 		ShowLobbyMenu();
 	}
 }
 
 void USpaceShipGameInstance::ShowLobbyMenu()
 {
-	if (GetWorld() && GetWorld()->GetNetMode() != NM_Standalone)
+	if( GetWorld() && GetWorld()->GetNetMode() != NM_Standalone )
 	{
 		return;
 	}
 
 	bMenuShouldBeVisible = true;
-	if (!LobbyMenuWidget.IsValid())
+	if( !LobbyMenuWidget.IsValid() )
 	{
-		LobbyMenuWidget = SNew(SLobbyMenuWidget).GameInstance(this);
+		LobbyMenuWidget = SNew( SLobbyMenuWidget ).GameInstance( this );
 	}
 
-	if (!GEngine || !GEngine->GameViewport)
+	UGameViewportClient* Viewport = GetGameViewportClient();
+	if( !Viewport )
 	{
 		return;
 	}
 
-	if (!bLobbyMenuAddedToViewport)
+	if( !bLobbyMenuAddedToViewport )
 	{
-		GEngine->GameViewport->AddViewportWidgetContent(LobbyMenuWidget.ToSharedRef(), 100);
+		Viewport->AddViewportWidgetContent( LobbyMenuWidget.ToSharedRef(), 100 );
 		bLobbyMenuAddedToViewport = true;
 	}
-	if (APlayerController* PlayerController = GetFirstLocalPlayerController())
+	if( APlayerController* PlayerController = GetFirstLocalPlayerController() )
 	{
 		PlayerController->bShowMouseCursor = true;
 		FInputModeGameAndUI InputMode;
-		InputMode.SetWidgetToFocus(LobbyMenuWidget);
-		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
-		PlayerController->SetInputMode(InputMode);
+		InputMode.SetWidgetToFocus( LobbyMenuWidget );
+		InputMode.SetLockMouseToViewportBehavior( EMouseLockMode::DoNotLock );
+		PlayerController->SetInputMode( InputMode );
 	}
 }
 
 void USpaceShipGameInstance::HideLobbyMenu()
 {
 	bMenuShouldBeVisible = false;
-	if (bLobbyMenuAddedToViewport && GEngine && GEngine->GameViewport && LobbyMenuWidget.IsValid())
+	if( bLobbyMenuAddedToViewport && GetGameViewportClient() && LobbyMenuWidget.IsValid() )
 	{
-		GEngine->GameViewport->RemoveViewportWidgetContent(LobbyMenuWidget.ToSharedRef());
+		GetGameViewportClient()->RemoveViewportWidgetContent( LobbyMenuWidget.ToSharedRef() );
 		bLobbyMenuAddedToViewport = false;
 	}
 
-	if (APlayerController* PlayerController = GetFirstLocalPlayerController())
+	if( APlayerController* PlayerController = GetFirstLocalPlayerController() )
 	{
 		PlayerController->bShowMouseCursor = false;
-		PlayerController->SetInputMode(FInputModeGameOnly());
+		PlayerController->SetInputMode( FInputModeGameOnly() );
 	}
 }
 
-void USpaceShipGameInstance::SetLobbyStatus(const FText& Status)
+void USpaceShipGameInstance::SetLobbyStatus( const FText& Status )
 {
 	LobbyStatus = Status;
+	UE_LOG( LogTemp, Log, TEXT( "Lobby [%s]: %s" ), *GetName(), *Status.ToString() );
 }
 
 void USpaceShipGameInstance::ReturnToStandaloneLobby()
 {
 	bOperationInProgress = false;
 	bMenuShouldBeVisible = true;
-	if (UWorld* World = GetWorld())
+	if( UWorld* World = GetWorld() )
 	{
-		if (World->GetNetMode() != NM_Standalone)
+		if( World->GetNetMode() != NM_Standalone )
 		{
-			UGameplayStatics::OpenLevel(World, LobbyMapName);
+			UGameplayStatics::OpenLevel( World, LobbyMapName );
 			return;
 		}
 	}
 	ShowLobbyMenu();
 }
 
-void USpaceShipGameInstance::HandleCreateSessionComplete(FName SessionName, bool bWasSuccessful)
+void USpaceShipGameInstance::HandleCreateSessionComplete( FName SessionName, bool bWasSuccessful )
 {
-	if (IOnlineSessionPtr SessionInterface = GetSessionInterface())
+	if( IOnlineSessionPtr SessionInterface = GetSessionInterface() )
 	{
-		SessionInterface->ClearOnCreateSessionCompleteDelegate_Handle(CreateSessionCompleteDelegateHandle);
+		SessionInterface->ClearOnCreateSessionCompleteDelegate_Handle( CreateSessionCompleteDelegateHandle );
 	}
 
 	bOperationInProgress = false;
-	if (!bWasSuccessful)
+	if( !bWasSuccessful )
 	{
-		SetLobbyStatus(FText::FromString(TEXT("Could not create the LAN lobby.")));
+		SetLobbyStatus( FText::FromString( TEXT( "Could not create the LAN lobby." ) ) );
 		ShowLobbyMenu();
 		return;
 	}
 
-	SetLobbyStatus(FText::FromString(TEXT("Lobby created. Waiting for players...")));
-	UGameplayStatics::OpenLevel(this, LobbyMapName, true, TEXT("listen"));
+	SetLobbyStatus( FText::FromString( TEXT( "Lobby created. Waiting for players..." ) ) );
+	HideLobbyMenu();
+	UGameplayStatics::OpenLevel( this, LobbyMapName, true, FString::Printf( TEXT( "listen?%s" ), *GetProfileTravelOptions() ) );
 }
 
-void USpaceShipGameInstance::HandleFindSessionsComplete(bool bWasSuccessful)
+void USpaceShipGameInstance::HandleFindSessionsComplete( bool bWasSuccessful )
 {
-	if (IOnlineSessionPtr SessionInterface = GetSessionInterface())
+	if( IOnlineSessionPtr SessionInterface = GetSessionInterface() )
 	{
-		SessionInterface->ClearOnFindSessionsCompleteDelegate_Handle(FindSessionsCompleteDelegateHandle);
+		SessionInterface->ClearOnFindSessionsCompleteDelegate_Handle( FindSessionsCompleteDelegateHandle );
 	}
 
-	if (!bWasSuccessful || !SessionSearch.IsValid())
+	if( !bWasSuccessful || !SessionSearch.IsValid() )
 	{
 		bOperationInProgress = false;
-		SetLobbyStatus(FText::FromString(TEXT("LAN lobby search failed.")));
+		SetLobbyStatus( FText::FromString( TEXT( "LAN lobby search failed." ) ) );
 		ShowLobbyMenu();
 		return;
 	}
 
 	const FOnlineSessionSearchResult* AvailableSession = nullptr;
-	for (const FOnlineSessionSearchResult& SearchResult : SessionSearch->SearchResults)
+	for( const FOnlineSessionSearchResult& SearchResult : SessionSearch->SearchResults )
 	{
-		if (SearchResult.IsValid() && SearchResult.Session.NumOpenPublicConnections > 0)
+		if( SearchResult.IsValid() && SearchResult.Session.NumOpenPublicConnections > 0 )
 		{
 			AvailableSession = &SearchResult;
 			break;
 		}
 	}
 
-	if (!AvailableSession)
+	if( !AvailableSession )
 	{
 		bOperationInProgress = false;
-		SetLobbyStatus(FText::FromString(TEXT("No joinable LAN lobbies were found.")));
+		SetLobbyStatus( FText::FromString( TEXT( "No joinable LAN lobbies were found." ) ) );
 		ShowLobbyMenu();
 		return;
 	}
 
 	IOnlineSessionPtr SessionInterface = GetSessionInterface();
-	if (!SessionInterface.IsValid())
+	if( !SessionInterface.IsValid() )
 	{
 		bOperationInProgress = false;
-		SetLobbyStatus(FText::FromString(TEXT("Online sessions are unavailable.")));
+		SetLobbyStatus( FText::FromString( TEXT( "Online sessions are unavailable." ) ) );
 		ShowLobbyMenu();
 		return;
 	}
 
-	JoinSessionCompleteDelegateHandle = SessionInterface->AddOnJoinSessionCompleteDelegate_Handle(JoinSessionCompleteDelegate);
-	if (!SessionInterface->JoinSession(0, LobbySessionName, *AvailableSession))
+	JoinSessionCompleteDelegateHandle = SessionInterface->AddOnJoinSessionCompleteDelegate_Handle( JoinSessionCompleteDelegate );
+	if( !SessionInterface->JoinSession( 0, LobbySessionName, *AvailableSession ) )
 	{
-		SessionInterface->ClearOnJoinSessionCompleteDelegate_Handle(JoinSessionCompleteDelegateHandle);
+		SessionInterface->ClearOnJoinSessionCompleteDelegate_Handle( JoinSessionCompleteDelegateHandle );
 		bOperationInProgress = false;
-		SetLobbyStatus(FText::FromString(TEXT("Could not join the LAN lobby.")));
+		SetLobbyStatus( FText::FromString( TEXT( "Could not join the LAN lobby." ) ) );
 		ShowLobbyMenu();
 	}
 }
 
-void USpaceShipGameInstance::HandleJoinSessionComplete(FName SessionName, EOnJoinSessionCompleteResult::Type Result)
+void USpaceShipGameInstance::HandleJoinSessionComplete( FName SessionName, EOnJoinSessionCompleteResult::Type Result )
 {
 	IOnlineSessionPtr SessionInterface = GetSessionInterface();
-	if (SessionInterface.IsValid())
+	if( SessionInterface.IsValid() )
 	{
-		SessionInterface->ClearOnJoinSessionCompleteDelegate_Handle(JoinSessionCompleteDelegateHandle);
+		SessionInterface->ClearOnJoinSessionCompleteDelegate_Handle( JoinSessionCompleteDelegateHandle );
 	}
 
 	FString ConnectString;
-	if (Result == EOnJoinSessionCompleteResult::Success &&
+	if( Result == EOnJoinSessionCompleteResult::Success &&
 		SessionInterface.IsValid() &&
-		SessionInterface->GetResolvedConnectString(SessionName, ConnectString))
+		SessionInterface->GetResolvedConnectString( SessionName, ConnectString ) )
 	{
 		bOperationInProgress = false;
-		SetLobbyStatus(FText::FromString(TEXT("Joining lobby...")));
+		SetLobbyStatus( FText::FromString( TEXT( "Joining lobby..." ) ) );
 		HideLobbyMenu();
-		if (APlayerController* PlayerController = GetFirstLocalPlayerController())
+		if( APlayerController* PlayerController = GetFirstLocalPlayerController() )
 		{
-			PlayerController->ClientTravel(ConnectString, TRAVEL_Absolute);
+			PlayerController->ClientTravel( FString::Printf( TEXT( "%s?%s" ), *ConnectString, *GetProfileTravelOptions() ), TRAVEL_Absolute );
 			return;
 		}
 	}
 
 	bOperationInProgress = false;
-	SetLobbyStatus(FText::FromString(TEXT("Could not connect to the LAN lobby.")));
+	SetLobbyStatus( FText::FromString( TEXT( "Could not connect to the LAN lobby." ) ) );
 	ShowLobbyMenu();
 }
 
-void USpaceShipGameInstance::HandleDestroySessionComplete(FName SessionName, bool bWasSuccessful)
+void USpaceShipGameInstance::HandleDestroySessionComplete( FName SessionName, bool bWasSuccessful )
 {
-	if (IOnlineSessionPtr SessionInterface = GetSessionInterface())
+	if( IOnlineSessionPtr SessionInterface = GetSessionInterface() )
 	{
-		SessionInterface->ClearOnDestroySessionCompleteDelegate_Handle(DestroySessionCompleteDelegateHandle);
+		SessionInterface->ClearOnDestroySessionCompleteDelegate_Handle( DestroySessionCompleteDelegateHandle );
 	}
 
-	if (bCreateSessionAfterDestroy)
+	if( bCreateSessionAfterDestroy )
 	{
 		bCreateSessionAfterDestroy = false;
-		if (!bWasSuccessful)
+		if( !bWasSuccessful )
 		{
 			bOperationInProgress = false;
-			SetLobbyStatus(FText::FromString(TEXT("Could not close the previous lobby.")));
+			SetLobbyStatus( FText::FromString( TEXT( "Could not close the previous lobby." ) ) );
 			ShowLobbyMenu();
 			return;
 		}
@@ -413,26 +443,32 @@ void USpaceShipGameInstance::HandleDestroySessionComplete(FName SessionName, boo
 		return;
 	}
 
-	if (bReturnToMenuAfterDestroy)
+	if( bReturnToMenuAfterDestroy )
 	{
 		bReturnToMenuAfterDestroy = false;
 		ReturnToStandaloneLobby();
 	}
 }
 
-void USpaceShipGameInstance::HandleNetworkFailure(UWorld* World, UNetDriver* NetDriver, ENetworkFailure::Type FailureType, const FString& ErrorString)
+void USpaceShipGameInstance::HandleNetworkFailure( UWorld* World, UNetDriver* NetDriver, ENetworkFailure::Type FailureType, const FString& ErrorString )
 {
-	RecoverFromTravelFailure(ErrorString);
+	if( World == GetWorld() )
+	{
+		RecoverFromTravelFailure( ErrorString );
+	}
 }
 
-void USpaceShipGameInstance::HandleTravelFailure(UWorld* World, ETravelFailure::Type FailureType, const FString& ErrorString)
+void USpaceShipGameInstance::HandleTravelFailure( UWorld* World, ETravelFailure::Type FailureType, const FString& ErrorString )
 {
-	RecoverFromTravelFailure(ErrorString);
+	if( World == GetWorld() )
+	{
+		RecoverFromTravelFailure( ErrorString );
+	}
 }
 
-void USpaceShipGameInstance::RecoverFromTravelFailure(const FString& ErrorString)
+void USpaceShipGameInstance::RecoverFromTravelFailure( const FString& ErrorString )
 {
-	const FString Message = ErrorString.IsEmpty() ? TEXT("The network travel failed.") : ErrorString;
-	SetLobbyStatus(FText::FromString(Message));
+	const FString Message = ErrorString.IsEmpty() ? TEXT( "The network travel failed." ) : ErrorString;
+	SetLobbyStatus( FText::FromString( Message ) );
 	ReturnToStandaloneLobby();
 }

@@ -29,6 +29,10 @@
 		{
 			"Name": "OnlineSubsystemUtils",
 			"Enabled": true
+		},
+		{
+			"Name": "glTFRuntime",
+			"Enabled": false
 		}
 	]
 }

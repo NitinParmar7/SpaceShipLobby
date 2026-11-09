@@ -17,6 +17,7 @@ public class SpaceShip : ModuleRules
 			"EnhancedInput",
 			"OnlineSubsystem",
 			"OnlineSubsystemUtils",
+			"HTTP",
 			"Slate",
 			"SlateCore"
 		});
