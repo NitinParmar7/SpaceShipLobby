@@ -1,0 +1,10 @@
+# Unreal Engine build output, caches, and local editor state
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+
+# Local IDE metadata and generated project files
+.idea/
+.vs/
+/SpaceShip.sln
